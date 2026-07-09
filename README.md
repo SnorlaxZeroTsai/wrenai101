@@ -38,6 +38,7 @@ WrenAI 在 **2026-05-07 做了破壞性改版**。你在網路上看到的 90% �
 | [04](docs/04-security-governance.md) | 安全性與可治理落地 | `policy.py` SQL firewall 是亮點,**但預設 `strict_mode=False`(關閉)**;knowledge/rules 是 prompt 治理非引擎治理 |
 | [05](docs/05-enterprise-verdict.md) | 企業採用總評 | 語意層可信、執行層需外部補強;附信任度總表與補強清單 |
 | [06](docs/06-comparison.md) | 對照組:五種方案比較 | 三原型(原始 schema / RAG 記憶 / 語意層);WrenAI 是「願意建模 + 資料敏感」象限唯一的開源跨源選項 |
+| [附錄](docs/appendix-first-contribution.md) | 第一次開源貢獻實戰 | 用第 1 章抓到的 guided 模板 bug,走完重現 → issue → PR 全流程 |
 
 深挖優先序(2026-07 修訂):**第 6 章 > 第 3 章 > 第 1 章 > 第 2 章 > 第 4 章**。
 理由見各章開頭。
