@@ -19,14 +19,17 @@
 | 機制 | 內建強度 | 成熟度 | 預設狀態 | 敏感資料場景可信嗎 |
 |---|---|---|---|---|
 | MDL 語意層(降 text2SQL 錯誤) | 強(deterministic 展開) | 高 | 啟用 | ✅ 可信 |
-| RLAC / CLAC(row/column 存取控制) | 強(引擎注入 Filter) | 中高 | 需定義規則 + **傳身份** | 🟡 能力可信,落地取決於身份鏈 |
+| main context 供應鏈(memory/skills/ask) | 中(30K 閾值全量/檢索,第 1 章) | 中 | 啟用(memory 需 extra) | ✅ 可信(準確度機制,非安全機制) |
+| RLAC / CLAC(row/column 存取控制) | 強(引擎注入 Filter;CLAC wildcard 靜默剪除,第 3 章) | 中高 | 需定義規則 + **傳身份** | 🟡 能力可信,落地取決於身份鏈 |
 | SQL firewall(strict mode) | 強(威脅模型成熟) | 中高 | ❌ **預設關** | 🟡 開了才可信 |
 | dry-plan / dry-run 驗證 | 中 | 中 | 需呼叫端主動用 | 🟡 輔助性 |
-| 身份傳遞(誰在問) | 弱(預設 CLI 沒接) | 低 | 需外部 gateway | 🔴 缺口 |
+| **SDK 工具護欄(limit 100/1000、16KB cap)** | 中(只護 LLM-facing 表面) | 中 | ✅ SDK 路徑預設啟用 | 🟡 走 SDK 才有;CLI/API 無 |
+| 身份傳遞(誰在問) | 弱(預設 CLI 沒接;**官方劃為商業版功能**,第 3 章) | 低 | 需外部 gateway | 🔴 缺口 |
 | 單一 DB credential 模型 | —(架構如此) | — | 共用 service account | 🔴 繞過即失防護 |
-| 大量結果保護(limit/stream) | 弱(無預設上限、無 stream) | 低 | 無 | 🔴 缺口 |
-| 結果 rows 進 LLM(DLP) | 弱(legacy 會塞、main 交給 agent) | 低 | 無管控 | 🔴 缺口 |
-| 審計 / 審批 / rate limit | ❌ 無 | — | 不存在 | 🔴 缺口 |
+| 大量結果保護(CLI/API 路徑) | 弱(無預設上限、無 stream) | 低 | 無 | 🔴 缺口(SDK 路徑除外) |
+| 結果 rows 進 LLM(DLP) | 弱(legacy 會塞、main 交給 agent;SDK 有量的截斷、無「該不該送」判斷) | 低 | 無管控 | 🔴 缺口 |
+| knowledge/rules 業務規則 | 最弱(prompt 素材,引擎不強制,第 4 章 4.1b) | — | — | 🔴 不可當安全機制用 |
+| 審計 / 審批 / rate limit | ❌ 無(**官方劃為商業版/roadmap**) | — | 不存在 | 🔴 缺口 |
 
 圖例:✅ 可直接信任 / 🟡 有條件可信(需正確設定或補強) / 🔴 明確缺口,需外部補齊
 
@@ -40,8 +43,10 @@ JOIN/計算欄位/方言由 Rust 引擎 deterministic 展開,LLM 只產「對語
 這確實從架構上壓低 JOIN/欄位/聚合錯誤,不是靠 LLM 更聰明。**可信。**(第 1 章)
 
 **Q2. 大量結果怎麼處理?**
-**幾乎沒有保護。** 無預設 LIMIT、`fetchall()` 全量進記憶體、無 streaming/分頁;
-摘要走「撈全量 → 從尾端砍 50 列」而非 DB 端彙總。**企業硬缺口,需外掛。**(第 2 章)
+**分路徑**:CLI/直接 API 無保護(無預設 LIMIT、`fetchall()` 全量進記憶體、
+無 streaming/分頁);官方 SDK 的 LLM-facing 工具是唯一例外(limit=100、
+硬上限 1000)。「撈全量 → 從尾端砍 50 列」的摘要是 legacy 行為,main 交給
+外部 agent。**缺口集中在非 SDK 路徑與 streaming/timeout,需外掛。**(第 2 章 §2.1b)
 
 **Q3. 使用者會操作到別人的資料嗎?**
 RLAC/CLAC 是引擎層真強制(不是靠 LLM),能力值得肯定;**但預設 CLI 沒接身份、
@@ -104,7 +109,16 @@ WrenAI 負責它擅長的:語意正確 + 存取控制強制 + SQL firewall。
   「WrenAI 把這層責任設計成由部署者承擔」。
 - **給你的判斷**:可以採用,但**必須把它放在一個自建的身份感知 gateway 後面**,
   並完成 5.4 的 P0 清單,才適合企業內部敏感資料場景。把它當「引擎」,不要當「產品」。
+- **兩個 2026-07 修訂後的補充判斷**:
+  1. 自建 gateway 補身份鏈時要有正確的心理帳:官方把「per-user RLS/CLS、
+     session properties、audit log」明列為**商業版功能**(第 3 章)——你是在
+     自建商業版的核心加值,不是補小洞。評估「自建 vs 買商業版 vs 換
+     Cortex Analyst(若資料全在 Snowflake)」時,把這個工作量放進去比。
+  2. 對照組看完(第 6 章)後的相對結論:WrenAI 的缺口(身份鏈、審計)是
+     「語意層派」原型的共同稅或商業分界,而它的強項(引擎級 RLAC/CLAC、
+     SQL firewall、deterministic 展開)在開源跨源選項裡**沒有替代品**——
+     其他開源方案不是做得比它差,是根本沒做這一層。
 
 ---
 
-**上一章** → [04 安全治理](04-security-governance.md)　|　**回目錄** → [README](../README.md)
+**上一章** → [04 安全治理](04-security-governance.md)　|　**下一章** → [06 對照組比較](06-comparison.md)　|　**回目錄** → [README](../README.md)

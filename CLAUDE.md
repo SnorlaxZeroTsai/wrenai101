@@ -16,9 +16,15 @@ WrenAI repo 在 **2026-05-07 大改版**:
 → 使用者的四大問題橫跨兩個架構,回答時必須分辨「新 main」vs「legacy/v1」。
 
 ## 原始碼位置(絕對路徑)
-clone 在 `/home/kasm-user/wrenai101/.wrenai-src`(main),legacy 用 `git show FETCH_HEAD:...`。
+clone 在 `/home/kasm-user/Desktop/wrenai101/.wrenai-src`(main,2026-07-09 HEAD = a8a7519),
+legacy 用 `git show FETCH_HEAD:...`(FETCH_HEAD = legacy/v1)。
 
 - RLS/CLS 引擎強制:`core/wren-core/core/src/logical_plan/analyze/access_control.rs`
+  (⚠ a8a7519 起 CLAC 雙軌:明確引用 deny、wildcard 靜默剪除 `plan.rs:1049-1067`)
+- main 的 agent context 供應鏈:`core/wren/src/wren/memory/`(30K 閾值全量/檢索,
+  `schema_indexer.py:36`)、`ask.py`+`ask_templates/`、`skills_content/`
+- SDK 護欄(LLM-facing 工具 limit=100/cap 1000/16KB):`sdk/wren-langchain/src/wren_langchain/_tools.py`
+- knowledge/rules 只是 prompt 素材、引擎不強制(官方 correctness.md:57 誇大):`context.py::load_rules`
 - MDL 型別/access control 定義:`core/wren-core-base/src/mdl/{manifest,cls}.rs`
 - SQL policy firewall:`core/wren/src/wren/policy.py`(issue #2409:擋 file reader/SSRF/DoS)
 - 查詢執行/連線:`core/wren/src/wren/engine.py` + `connector/*.py`

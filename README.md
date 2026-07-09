@@ -32,14 +32,18 @@ WrenAI 在 **2026-05-07 做了破壞性改版**。你在網路上看到的 90% �
 | 章 | 主題 | 一句話結論 |
 |---|---|---|
 | [00](docs/00-two-architectures.md) | 兩套架構的分水嶺 | 不分辨 main/legacy 就會得到錯誤結論 |
-| [01](docs/01-text2sql-deep-dive.md) | text2SQL 的真實分工邊界 | LLM 只產「對語意層的邏輯 SQL」,JOIN/方言/計算欄位由 Rust 引擎 deterministic 展開 |
-| [02](docs/02-large-result-handling.md) | 大量查詢結果處理 | **幾乎無保護**:無預設 LIMIT、`fetchall()` 全量進記憶體、LLM 摘要是「塞爆再削」。企業硬缺口 |
-| [03](docs/03-data-isolation.md) | 使用者資料存取隔離 | RLAC/CLAC 引擎層真強制,**但預設 CLI 沒接身份**、單一共用 credential → 繞過風險 |
-| [04](docs/04-security-governance.md) | 安全性與可治理落地 | `policy.py` SQL firewall 是亮點,**但預設 `strict_mode=False`(關閉)** |
+| [01](docs/01-text2sql-deep-dive.md) | text2SQL 的真實分工邊界 | LLM 只產「對語意層的邏輯 SQL」,JOIN/方言/計算欄位由 Rust 引擎 deterministic 展開;main 有自己的 context 供應鏈(30K 閾值全量/檢索) |
+| [02](docs/02-large-result-handling.md) | 大量查詢結果處理 | 護欄哲學是「守 LLM 不守工程師」:**SDK 工具有 limit=100/1000 硬上限,CLI/API 無任何保護** |
+| [03](docs/03-data-isolation.md) | 使用者資料存取隔離 | RLAC/CLAC 引擎層真強制(CLAC 對 wildcard 改靜默剪除),**但預設 CLI 沒接身份**、單一共用 credential;官方把 per-user 身份劃為**商業版功能** |
+| [04](docs/04-security-governance.md) | 安全性與可治理落地 | `policy.py` SQL firewall 是亮點,**但預設 `strict_mode=False`(關閉)**;knowledge/rules 是 prompt 治理非引擎治理 |
 | [05](docs/05-enterprise-verdict.md) | 企業採用總評 | 語意層可信、執行層需外部補強;附信任度總表與補強清單 |
+| [06](docs/06-comparison.md) | 對照組:五種方案比較 | 三原型(原始 schema / RAG 記憶 / 語意層);WrenAI 是「願意建模 + 資料敏感」象限唯一的開源跨源選項 |
 
-深挖優先序(依「值不值得信任」):**第 3 章 > 第 2 章 > 第 4 章 > 第 1 章**。
+深挖優先序(2026-07 修訂):**第 6 章 > 第 3 章 > 第 1 章 > 第 2 章 > 第 4 章**。
 理由見各章開頭。
+
+驗證基準更新:2026-07-09 fresh clone,`main` HEAD = `a8a7519`
+(該 commit 本身就改了 CLAC 行為,見第 3 章)。
 
 ---
 
@@ -67,5 +71,12 @@ JOIN/計算/方言由 Rust 引擎處理,LLM 只需產「邏輯 SQL」,這確實�
 text2SQL 常見錯誤(第 1 章)。RLAC/CLAC 是引擎層真強制,不是靠 LLM 自律(第 3 章)。
 
 但**執行層的企業級護欄大多預設關閉或缺席**:SQL firewall 預設 off、
-無預設 row limit、身份未接進預設 CLI、單一共用 DB credential。
-要用在敏感資料場景,必須在 gateway/DB 層外掛身份感知存取控制與資源護欄(第 5 章)。
+CLI/API 無預設 row limit(官方 agent SDK 的 LLM-facing 工具有 limit=100/1000
+護欄,是唯一例外)、身份未接進預設 CLI(官方劃為商業版功能)、單一共用
+DB credential。要用在敏感資料場景,必須在 gateway/DB 層外掛身份感知存取控制
+與資源護欄(第 5 章)。
+
+對照組結論(第 6 章):LangChain/LlamaIndex/raw MCP 在治理層**什麼都沒有**、
+Vanna 的 "RLS" 是待實作的 NoOp hook;開源跨源方案裡引擎級存取控制只有 WrenAI 有。
+治理做得最完整的是 Snowflake Cortex Analyst(繼承倉庫 RBAC,以使用者本人
+role 執行)——代價是鎖死單一倉庫。

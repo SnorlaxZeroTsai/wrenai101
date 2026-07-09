@@ -1,6 +1,6 @@
 # 第 4 章:安全性與可治理的實際落地
 
-> 深挖優先序:**第 3**。`policy.py` 是被官方文件低估的實質亮點,值得看原始碼;
+> 深挖優先序:**第 5**。`policy.py` 是被官方文件低估的實質亮點,值得看原始碼;
 > 但「governed」一詞的邊界(哪些內建、哪些預設關、哪些要外部補)必須釐清。
 
 一句話結論:**WrenAI 的「governed text-to-SQL」是「一組治理原語(primitives)的組合」——
@@ -18,13 +18,45 @@ SQL firewall + RLAC/CLAC + dry-plan + row limit——而不是一個開箱即用
 | RLAC / CLAC | row/column 存取控制,引擎注入 | 強(deterministic) | 需定義規則 + 傳身份 | 第 3 章 |
 | SQL firewall(strict mode) | 只允許 MDL 內的表 + 擋危險函式 | 強 | **關(`strict_mode=False`)** | `policy.py`、`config.py` |
 | dry-plan / dry-run | 執行前驗證 SQL 能否 planning/跑 | 中(需呼叫端主動用) | — | `cli.py`、`engine.py` |
-| row limit | 限制回傳列數 | 弱(預設無上限) | 無 | 第 2 章 |
+| row limit | 限制回傳列數 | 弱(CLI/API 預設無上限;SDK 工具路徑有 100/1000,§2.1b) | 無(SDK 除外) | 第 2 章 |
 | MDL 由人審核 | 語意定義版控、review | 弱(流程治理,非技術強制) | — | MDL as YAML in git |
+| knowledge/rules 業務規則 | 純 prompt 素材,LLM 讀不讀隨緣 | **最弱(prompt 治理,見 4.1b)** | — | `context.py::load_rules` |
 | audit log / 審批 / rate limit | — | **不存在**(README 標為 What's next) | — | README |
 
 所以「governed」**不是**單一的 query 審核流程,也**不只是**「semantic 定義人審過」這種
 弱治理——它比後者強(有 RLAC + firewall 的技術強制),但比「完整治理平台」弱
 (關鍵護欄預設關、審計缺席)。
+
+---
+
+## 4.1b 官方文件的一處誇大:knowledge/rules 是 prompt 治理,不是引擎治理(2026-07 核驗)
+
+官方 `docs/core/concepts/correctness.md:57` 宣稱 `wren dry-plan` 的輸出會包含:
+
+> "Policy filters from your business rules (`knowledge/rules/`) injected"
+
+**原始碼不支持這句話。** 核驗路徑:
+
+- `knowledge/rules/*.md` 的唯一消費者是 `load_rules()`(`context.py:726`),
+  它把 markdown 檔**串接成純文字**,由 `wren context instructions` 印到 stdout
+  (`context_cli.py:777`,docstring 自己寫「for LLM consumption」)。
+- `engine.py`(planning/dry-plan 的家)**沒有任何地方** import 或呼叫
+  `load_rules` / `load_knowledge_rules`;grep 整個 engine 路徑找不到
+  `knowledge` 字樣。
+- 引擎在 dry-plan 時真正注入的 filter 只有一種:**MDL 裡的 RLAC**
+  (`plan.rs::build_rlac_filter`,第 3 章)。
+
+所以正確的分級是:
+
+| 治理載體 | 寫在哪 | 誰強制 | 強度 |
+|---|---|---|---|
+| RLAC/CLAC | MDL(`models/*.yml` 的 access control 區塊) | **Rust 引擎,deterministic** | 強 |
+| 「一律過濾 `is_deleted=false`」這類業務規則 | `knowledge/rules/*.md` | **沒人**——只是 prompt 素材,LLM 讀了不一定照做,prompt injection 可推翻 | 弱 |
+
+**教材判定**:官方把「進 prompt 的建議」和「進 plan 的強制」用同一句話帶過,
+是行銷式含糊。評估時的紅線:**任何有安全/合規意涵的規則(資料範圍、過濾條件、
+遮蔽)必須寫成 MDL 的 RLAC/CLAC,寫進 knowledge/rules 的只能當 UX 提示。**
+「這條規則寫錯地方」在 WrenAI 裡是安全等級的差異,不是風格差異。
 
 ---
 
@@ -72,6 +104,11 @@ def validate_sql_policy(ast, model_names, config):
 
 4. **自訂黑名單**:`denied_functions` 讓 operator 額外封任何函式(縱深防禦)。
 
+補一個 2026-07 核驗發現的細節,比初版描述**更強**:`config.py:28-30` 明文規定
+data/file reader(`read_csv`、`dblink`…)**永遠不能**經 `allowed_source_functions`
+放行——那個 opt-in 白名單只對 `generate_series` 類合成生成器有效。也就是說
+「路徑穿越/SSRF/橫向移動」這三類在 strict mode 下沒有任何後門可開。
+
 **判定(4.2)**:`policy.py` 的威脅模型很成熟(路徑穿越 / SSRF / 橫向移動 / DoS
 都想到了),這是 WrenAI 治理的真本事。**但它預設關閉,是 opt-in。** 企業用一定要開
 `strict_mode=true`,否則等於沒有這道牆。
@@ -104,7 +141,7 @@ dry-plan / dry-run 驗證
   ▼
 連接器執行(單一 credential)
   │
-  ⑤ row limit / timeout             —— ⚠️ 弱(預設無上限,見第 2 章)
+  ⑤ row limit / timeout             —— ⚠️ 弱(CLI/API 無上限;SDK 工具除外,見第 2 章)
   ⑥ audit log / 審批 / rate limit   —— ❌ 不存在,需外部
   ▼
 資料庫
@@ -127,8 +164,11 @@ LLM 拿到的是 MDL 編出來的 DDL(表名、欄位名、description、計算�
 ### (b) 查詢結果 rows → **可能會送給 LLM**(高風險點)
 - **legacy/v1**:`sql_answer` 明確把 `rows: {{ sql_data.data }}` 放進 prompt
   (第 2 章)。所以「總結這些資料」會把**原始資料列送到 LLM API**。
-- **main**:沒有內建摘要管線,是否把 rows 送 LLM **完全由外部 agent 決定**。若 agent
-  天真地把 `wren query` 回傳的 Arrow table 丟進 prompt,原始資料就外洩了。
+- **main**:沒有內建摘要管線,是否把 rows 送 LLM **完全由外部 agent 決定**。
+  走官方 SDK 工具的 agent,進 prompt 的 rows 被預設 limit=100 / 硬上限 1000 管住
+  (第 2 章 §2.1b;16KB cap 只管 content 欄位、且僅 wren-langchain)——但那是
+  「量」的控制,不是「該不該送」的 DLP 判斷;自己包 CLI/API 的 agent
+  連量的控制都沒有。
 
 **判定(4.4)**:schema 語意送 LLM 基本無法避免(這是 text2SQL 的前提);真正的敏感
 資料外洩風險在「結果 rows 進 prompt」——legacy 會做、main 交給 agent。

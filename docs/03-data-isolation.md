@@ -1,6 +1,6 @@
 # 第 3 章:使用者資料存取隔離
 
-> 深挖優先序:**第 1(最高)**。這是「使用者操作到不屬於他的資料」這個具體風險的核心,
+> 深挖優先序:**第 2**(僅次於第 6 章對照組)。這是「使用者操作到不屬於他的資料」這個具體風險的核心,
 > 也是多租戶 BI 工具最常踩雷的地方,而官方文件對此講得最含糊。
 
 一句話結論:**WrenAI 有一套真材實料、引擎層強制的 row/column-level 存取控制(RLAC/CLAC),
@@ -67,16 +67,47 @@ session property,見 3.3)。
 required property 缺失 → 報錯;值為 null/空 → 報錯。**不是字串拼接**,是 parse 成
 DataFusion `Expr` 再併入 plan,降低注入風險。
 
-### Column-Level Access Control(CLAC)
+### Column-Level Access Control(CLAC)—— 2026-07-09 起是「雙軌」行為
 
 CLAC 在 `validate_clac_rule`(`access_control.rs` 行 534)判斷某欄位對當前 session
 是否可見:規則綁一個 session property,用 `clac.eval(value)` 比對
 (支援 `Equals/NotEquals/GreaterThan/...`,見 `wren-core-base/src/mdl/cls.rs`)。
-不通過 → 該欄位被擋。還會遞迴檢查 calculated field 依賴的來源欄位
-(`required_fields_map`),避免「用計算欄位繞過欄位遮蔽」。
+還會遞迴檢查 calculated field 依賴的來源欄位(`required_fields_map`),
+避免「用計算欄位繞過欄位遮蔽」。
+
+**⚠️ 修訂(2026-07-09,commit `a8a7519` / #2449)**:本書初版寫「不通過 → 該欄位
+被擋」,這句現在只對一半。不通過之後發生什麼,取決於欄位**怎麼被引用**:
+
+| 引用方式 | CLS 不通過時的行為 | 證據 |
+|---|---|---|
+| **明確引用**(SELECT list、WHERE、GROUP BY、JOIN ON 任何位置點名該欄位) | **整句查詢被拒**,回 `Access denied to column "model"."col": violates access control rule "..."` | `plan.rs:166-195`(named required fields 路徑) |
+| **隱式/wildcard 展開**(`SELECT *`、`SELECT e.*`、`count(*)`、帶 table alias 的 model scan) | **該欄位被靜默剪除**,查詢照常成功,結果就是少這一欄 | `plan.rs:1049-1067`(展開迴圈呼叫 `validate_clac_rule`,不通過就 `continue`);測試 `mdl/mod.rs::test_clac_unreferenced_column_pruned_not_denied` |
+
+改版動機是修 bug:改版前,`count(*)` 或帶 alias 的查詢即使**從未碰**被保護欄位,
+也會因為內部 wildcard 展開觸發 CLS 而整句被拒——現在改成貼近 `SELECT *` 直覺語意
+(給你「你看得到的所有欄位」)。
+
+**治理視角的雙面解讀(教材重點)**:
+
+- **fail-loud(明確引用 → 拒絕)**:使用者被明確告知「你沒有權限」。資訊洩漏面
+  來看,錯誤訊息本身確認了該欄位存在——但在 MDL 場景欄位名單本來就在 schema
+  context 裡,不算新增洩漏。
+- **fail-silent(wildcard → 剪除)**:查詢成功但**使用者不會被告知有欄位被藏了**。
+  對「不同角色看到不同欄寬」的多租戶報表這是理想語意。值得注意的是 DB 界
+  對此**並無單一慣例**:Postgres column privilege 下 `SELECT *` 是整句失敗
+  (permission denied,絕不剪欄);Snowflake masking policy 是遮值不藏欄;
+  WrenAI 選了第三種——藏欄,貼近「給你你看得到的所有欄位」的直覺語意。
+  但對「下游程式依賴欄位存在」的整合場景,靜默剪除會讓 schema 隨身份漂移,
+  除錯時很難想到是 CLS 在作用。審計上也要注意:沒有任何 log 記錄
+  「這次查詢剪掉了哪些欄」(本章 3.4 的審計缺口再 +1)。
 
 證據:`core/wren-core/core/src/logical_plan/analyze/access_control.rs`(RLAC/CLAC 邏輯)、
 `core/wren-core-base/src/mdl/cls.rs`(CLAC 運算子)、`plan.rs`(注入點)。
+
+值得加碼的一個細節:`plan.rs:979-996` 有一道防禦性檢查——若 DataFusion 的 plan
+遍歷過程把已注入的 `rlac_filter` 弄丟,引擎會直接擲 `internal_err` 讓查詢失敗,
+而不是靜默退化成「無過濾」。這是「寧可掛掉也不洩漏」的 fail-closed 設計,
+進一步支持「引擎層真強制」的判定。
 
 **判定(3.1)**:粒度足夠(row + column),而且是**引擎在 plan 層強制**,不是靠
 LLM 自律、也不是靠「semantic 定義人工審過」這種弱治理。這是 WrenAI 最值得信任的部分。
@@ -113,9 +144,16 @@ WrenAI 用的 DB credential 直連資料庫,RLAC 形同虛設——因為過濾�
 
 這是本章最重要、也最危險的發現。RLAC 的安全性 = 身份傳遞鏈的安全性。逐段檢查:
 
-### (a) 引擎/SDK 層:有身份參數 ✅
+### (a) 引擎層:有身份參數 ✅(但 agent SDK 也沒把它接出來 ⚠️)
 `engine.py` 的 `dry_plan/query/dry_run` 都接受 `properties: dict | None`,一路傳到
 `get_session_context(..., processed, ...)` 再進 Rust 引擎。所以**能力是通的**。
+
+但注意(2026-07 核驗):**官方 agent SDK 同樣沒接**——`wren-langchain` 的
+`WrenToolkit.query(sql, limit)` 與 LLM-facing 的 `wren_query` 工具簽名裡
+都沒有 `properties`(`sdk/wren-langchain/src/wren_langchain/_toolkit.py:61`)。
+這其實是正確的安全設計:session property 若暴露成 LLM 可填的工具參數,
+等於讓 LLM(可被 prompt injection 操縱)自報身份。正確接法只有一種:
+由受信任的後端在建 engine/toolkit 時綁定,LLM 摸不到(見 3.4)。
 
 ### (b) 預設 CLI 層:身份沒接上 ❌(關鍵缺口)
 ```python
@@ -123,9 +161,19 @@ WrenAI 用的 DB credential 直連資料庫,RLAC 形同虛設——因為過濾�
 result = engine.query(sql, limit=limit)   # ← 沒有 properties!
 ```
 `wren query` 指令**完全沒有傳 `properties`**,也沒有 `--property` / `--session` 這類
-flag 讓你帶入使用者身份。意思是:**用預設 CLI 跑查詢時,RLAC 規則因為 session
-property 缺失而不會套用**(`validate_rule` 對 required property 缺失會報錯、對 optional
-會走 default)。
+flag 讓你帶入使用者身份。那 session property 缺失時 RLAC 會怎樣?
+`validate_rule`(`access_control.rs:494`)其實分**三種行為**,安全意涵天差地遠:
+
+| 規則的 property 宣告 | property 缺失時 | 安全意涵 |
+|---|---|---|
+| `required` | **整句查詢報錯**(`plan_err!`) | fail-closed,安全——查不到任何東西 |
+| `optional` + 有 `default_expr` | 規則照常套用(代入 default 值) | 看 default 設得對不對 |
+| `optional` + 無 default | **規則被靜默跳過 → 資料未過濾放行** | 🔴 真正的洩漏路徑 |
+
+所以「預設 CLI 沒接身份」的實際後果取決於 MDL 作者怎麼宣告規則:全用 `required`
+的話,預設 CLI 對受控模型**整句失敗**(fail-closed,煩人但安全);一旦有規則
+是「optional 無 default」,預設 CLI 就會**無過濾地回傳全部資料**。教訓:
+**多租戶隔離規則一律宣告 `required`**,把 optional 留給「錦上添花」的過濾。
 
 換言之:RLAC 引擎能力存在,但**預設的使用路徑沒有把使用者是誰告訴引擎**。要真正用到
 RLAC,呼叫端(外部 agent 或自建服務)必須自己走 SDK、自己把 `properties` 帶進去。
@@ -136,11 +184,17 @@ RLAC,呼叫端(外部 agent 或自建服務)必須自己走 SDK、自己把 `pro
 
 ### (c) 連線層:單一共用 credential ❌(經典多租戶踩雷點)
 ```python
-# engine.py:__init__
+# engine.py:__init__(行 77)
 self.connection_info = data_source.get_connection_info(connection_info)
 ```
-每個 `WrenEngine` 綁**一組** `connection_info`(host/user/password/role...),
-預設從 `~/.wren/connection_info.json` 讀。所有查詢都用**這一組 DB credential** 執行。
+每個 `WrenEngine` 綁**一組** `connection_info`(host/user/password/role...)。
+所有查詢都用**這一組 DB credential** 執行。
+
+(2026-07 註:連線設定的主流路徑已從 `~/.wren/connection_info.json` 改成
+**named profiles**(`~/.wren/profiles.yml`,secret 用環境變數展開,
+`wren profile add/switch`);舊 json 路徑仍在(`cli.py:17`)但已屬 legacy。
+**身份粒度不變**:profile 是 per-database 的連線身份,不是 per-user——
+換了設定格式,共用 credential 的本質沒變。)
 
 這代表:
 - 送到資料庫的查詢,是用**共用的 service account 權限**執行,不是「使用者本人的
@@ -172,6 +226,26 @@ Rust 引擎注入 WHERE tenant_id = @session_tenant_id       ✅ deterministic �
 
 **判定(3.3)**:隔離鏈上有兩個高風險環節——(1) 身份到引擎這段,預設 CLI 沒接,
 必須靠呼叫端自己實作且不能出錯;(2) DB 這端是共用權限,一旦繞過 WrenAI 直連就無防護。
+
+### 這個斷裂是商業模式設計,不是疏忽(2026-07 補證)
+
+官方 `docs/core/concepts/oss_vs_commercial.md` 的能力對照表把界線劃得很明白:
+
+| Capability | Open source | Commercial |
+|---|:---:|:---:|
+| Access control **defined in MDL**(RLAC/CLAC) | ✅ | ✅ |
+| Accounts, roles, multi-user | ❌ | ✅ |
+| SSO, LDAP, SCIM provisioning | ❌ | ✅ |
+| **RLS/CLS per user, session properties, audit log** | ❌ | ✅ |
+
+讀懂這張表:OSS 給你**引擎能力**(RLAC/CLAC 規則定義與強制),但「把真實使用者
+身份接上 session property」這一段——帳號、SSO、per-user 的 RLS/CLS、audit log——
+是**商業版的賣點**。所以預設 CLI 不接身份、SDK 工具不暴露 properties,
+不是還沒做完,是**開源/商業的分界線刻意劃在這裡**。
+
+對評估的意涵:自建 gateway 補身份鏈(見 3.4)= 自己重做商業版的核心加值;
+這條路技術上可行(SDK 的 `properties` 參數是通的),但要有「這是在自建
+商業版功能」的認知來估工作量,而不是「補個小缺口」。
 
 ---
 
@@ -224,9 +298,18 @@ Rust 引擎注入 WHERE tenant_id = @session_tenant_id       ✅ deterministic �
 cd core/wren-core && cargo run --example row-level-access-control
 #   觀察:同一句 SELECT,帶不同 session_tenant_id 時回傳不同 rows
 
-# 2. 驗證「預設 CLI 不套 RLAC」:對有 RLAC 的 MDL 用 wren query 查,
-#    確認 required session property 缺失時的行為(報錯 or 未過濾)
-wren query --sql "SELECT * FROM documents"   # 無 property → 觀察是否報錯/未過濾
+# 1b. 驗證 CLAC 雙軌行為(a8a7519 起,見 §3.1)
+cd core/wren-core && cargo test test_clac_unreferenced_column_pruned_not_denied
+#   或自己對有 CLS 規則的 MDL 試兩句:
+#   SELECT * FROM employees          → 成功,結果少了被保護的欄(靜默剪除)
+#   SELECT salary FROM employees     → Access denied(明確引用被拒)
+
+# 2. 驗證「預設 CLI 沒接身份」的三種後果(對應 3.3(b) 的表):
+#    對有 RLAC 的 MDL 用 wren query 查(CLI 不會帶任何 session property)
+wren query --sql "SELECT * FROM documents"
+#    規則 required           → 預期整句報錯 "session property ... is required"
+#    規則 optional 有 default → 預期套 default 值過濾
+#    規則 optional 無 default → 預期【無過濾回傳全量】← 重點驗這個洩漏路徑
 
 # 3. 用 SDK 帶 properties 對照:
 python -c "
