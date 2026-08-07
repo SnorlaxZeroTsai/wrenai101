@@ -1,0 +1,75 @@
+diff --git a/core/wren/tests/unit/test_served_content_guard.py b/core/wren/tests/unit/test_served_content_guard.py
+index 60c56a14..ac72903e 100644
+--- a/core/wren/tests/unit/test_served_content_guard.py
++++ b/core/wren/tests/unit/test_served_content_guard.py
+@@ -55,21 +54,0 @@ COMMANDS: dict[str, set[str]] = _walk(typer.main.get_command(app))
+-# ``wren memory`` is conditionally registered (needs `wrenai[memory]`
+-# extras). It's a real public surface; bundled content correctly references
+-# it. Allow-list its subcommands so this guard doesn't flag false positives
+-# when the test env lacks memory extras.
+-_MEMORY_SUBCOMMANDS = (
+-    "index",
+-    "describe",
+-    "fetch",
+-    "store",
+-    "recall",
+-    "status",
+-    "reset",
+-    "list",
+-    "forget",
+-    "dump",
+-    "load",
+-)
+-COMMANDS.setdefault("memory", set())
+-for _s in _MEMORY_SUBCOMMANDS:
+-    COMMANDS.setdefault(f"memory {_s}", set())
+-
+@@ -84,6 +62,0 @@ _TOP_LEVEL_COMMANDS: set[str] = {p.split()[0] for p in COMMANDS if p}
+-# Flags on `wren memory ...` cannot be introspected here without the memory
+-# extras installed (lancedb + sentence-transformers). Skip flag validation for
+-# memory commands; the command path itself is still validated via the
+-# allow-list above.
+-_SKIP_FLAG_VALIDATION_FOR_GROUPS = {"memory"}
+-
+@@ -192,2 +164,0 @@ def _findings() -> list[str]:
+-        # Runs before _SKIP_FLAG_VALIDATION_FOR_GROUPS so typos under
+-        # `memory` are caught even though we can't introspect memory flags.
+@@ -205,7 +175,0 @@ def _findings() -> list[str]:
+-        # Skip flag validation for groups we can't introspect (memory needs
+-        # extras installed); the command path is still validated above by the
+-        # allow-list — only flags are skipped.
+-        cmd_group = cmd_path.split()[0] if cmd_path else ""
+-        if cmd_group in _SKIP_FLAG_VALIDATION_FOR_GROUPS:
+-            continue
+-
+@@ -238,0 +203,2 @@ def test_command_tree_loaded():
++    assert "--query" in COMMANDS["memory recall"]
++    assert "--threshold" in COMMANDS["memory fetch"]
+@@ -266,2 +232 @@ def test_unknown_subcommand_is_flagged(tmp_path, monkeypatch):
+-    usage`) must NOT be flagged. Typos under `memory` must also be caught
+-    even though flag validation is skipped for memory.
++    usage`) must NOT be flagged. Typos under `memory` must also be caught.
+@@ -288,0 +254,23 @@ def test_unknown_subcommand_is_flagged(tmp_path, monkeypatch):
++
++
++def test_unknown_memory_flag_is_flagged(tmp_path, monkeypatch):
++    """Memory commands are always registered, so their real flags must be
++    validated just like every other served CLI command.
++    """
++    fake_skill = tmp_path / "skill.md"
++    fake_skill.write_text(
++        "Run `wren memory recall --definitely-invalid value`.\n",
++        encoding="utf-8",
++    )
++
++    module = sys.modules[__name__]
++    monkeypatch.setattr(module, "_SKILLS_CONTENT", tmp_path)
++    monkeypatch.setattr(module, "_DOCS_CONTENT", tmp_path / "_empty_docs")
++    monkeypatch.setattr(module, "_ASK_TEMPLATES", tmp_path / "_empty_ask")
++    monkeypatch.setattr(module, "_DISCOVERY_STUB", tmp_path / "_no_stub.md")
++
++    problems = _findings()
++    assert any(
++        "unknown flag '--definitely-invalid' for 'wren memory recall'" in problem
++        for problem in problems
++    ), problems

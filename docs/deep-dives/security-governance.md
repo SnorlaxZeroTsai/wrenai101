@@ -1,5 +1,11 @@
 # 第 4 章:安全性與可治理的實際落地
 
+> **Snapshot note**：原始分析以 `a8a7519` 為基準。current `9a0f032` 已重驗
+> `WrenEngine._plan`、`policy.py` 入口與 rules boundary。尤其
+> `knowledge/rules` 是 agent-facing context，不是 automatic dry-plan filter；證據見
+> [`experiments/03-rules-boundary`](../../experiments/03-rules-boundary/)。
+> audit、approval、rate-limit 等產品能力在採用前需重新盤點。
+>
 > 深挖優先序:**第 5**。`policy.py` 是被官方文件低估的實質亮點,值得看原始碼;
 > 但「governed」一詞的邊界(哪些內建、哪些預設關、哪些要外部補)必須釐清。
 
@@ -20,7 +26,7 @@ SQL firewall + RLAC/CLAC + dry-plan + row limit——而不是一個開箱即用
 | dry-plan / dry-run | 執行前驗證 SQL 能否 planning/跑 | 中(需呼叫端主動用) | — | `cli.py`、`engine.py` |
 | row limit | 限制回傳列數 | 弱(CLI/API 預設無上限;SDK 工具路徑有 100/1000,§2.1b) | 無(SDK 除外) | 第 2 章 |
 | MDL 由人審核 | 語意定義版控、review | 弱(流程治理,非技術強制) | — | MDL as YAML in git |
-| knowledge/rules 業務規則 | 純 prompt 素材,LLM 讀不讀隨緣 | **最弱(prompt 治理,見 4.1b)** | — | `context.py::load_rules` |
+| knowledge/rules 業務規則 | agent-facing context，由 workflow 要求載入；不自動進 engine manifest | **流程治理，非 engine enforcement（見 4.1b）** | — | `context.py::load_rules` |
 | audit log / 審批 / rate limit | — | **不存在**(README 標為 What's next) | — | README |
 
 所以「governed」**不是**單一的 query 審核流程,也**不只是**「semantic 定義人審過」這種
@@ -224,4 +230,4 @@ wren query --sql "SELECT * FROM read_csv('/etc/passwd')"   # 未開 strict → �
 
 ---
 
-**上一章** → [03 資料隔離](03-data-isolation.md)　|　**下一章** → [05 企業採用總評](05-enterprise-verdict.md)
+**上一章** → [03 資料隔離](data-isolation.md)　|　**下一章** → [05 企業採用總評](enterprise-verdict.md)

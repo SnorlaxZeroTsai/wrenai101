@@ -1,5 +1,10 @@
 # 第 0 章:兩套架構的分水嶺
 
+> **Historical deep dive**：本章保留舊 repository 研究，用來辨識網路資料談的是
+> current `main` 還是 frozen `legacy/v1`。第一次閱讀請先看
+> [fundamentals/01-what-is-wrenai](../fundamentals/01-what-is-wrenai.md)；current
+> architecture 以 `9a0f032` 與 [`UPSTREAM_STATE.md`](../../UPSTREAM_STATE.md) 為準。
+>
 > 為什麼這章要放最前面:因為你的四個問題(text2SQL、大量結果、資料隔離、治理)
 > 在「新 main」和「legacy/v1」裡答案完全不同。分不清楚,結論就會錯。
 
@@ -104,4 +109,4 @@ WrenAI 做的是:
 
 ---
 
-**下一章** → [01 text2SQL 的真實分工邊界](01-text2sql-deep-dive.md)
+**下一章** → [01 text2SQL 的真實分工邊界](text2sql.md)

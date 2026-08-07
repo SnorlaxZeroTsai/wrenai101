@@ -1,5 +1,11 @@
 # 第 2 章:大量查詢結果的處理
 
+> **Snapshot note**：本章來自 `a8a7519`。`WrenEngine.query` 對 limit 的 handoff 已
+> 在 `9a0f032` 用
+> [`experiments/05-result-limits`](../../experiments/05-result-limits/) 重驗；
+> SDK cap、connector fetch strategy、前端與 legacy behavior 在作新採用判斷前仍需
+> 逐 path 重新驗證。
+>
 > 深挖優先序:**第 4**。這章缺口多,也是文件最避而不談的地方。
 >
 > **2026-07-09 修訂**:原版結論「幾乎沒有內建保護」需要分層修正——
@@ -251,4 +257,4 @@ wren query --sql "SELECT * FROM large_table" -l 100  # 對照:外層包 LIMIT 10
 
 ---
 
-**上一章** → [01 text2SQL](01-text2sql-deep-dive.md)　|　**下一章** → [03 資料存取隔離](03-data-isolation.md)
+**上一章** → [01 text2SQL](text2sql.md)　|　**下一章** → [03 資料存取隔離](data-isolation.md)

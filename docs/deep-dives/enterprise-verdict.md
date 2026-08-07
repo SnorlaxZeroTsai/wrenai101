@@ -1,5 +1,10 @@
 # 第 5 章:企業採用總評 —— 能不能用在有敏感資料的內部場景
 
+> **Decision snapshot**：這是 2026-07 source review 的採用判斷，不是永久產品
+> certification。current architecture fundamentals 已更新到 `9a0f032`，但身份整合、
+> audit、rate limit、SDK limits、connector behavior 與 commercial boundary 必須在
+> 真正採用評估時依 [`UPSTREAM_STATE.md`](../../UPSTREAM_STATE.md) 逐項刷新。
+>
 > 本章把前四章的原始碼發現收斂成一個決策。判準:**這個機制值不值得信任、
 > 能不能用在企業內部有敏感資料的場景。** 不美化已知限制。
 
@@ -121,4 +126,4 @@ WrenAI 負責它擅長的:語意正確 + 存取控制強制 + SQL firewall。
 
 ---
 
-**上一章** → [04 安全治理](04-security-governance.md)　|　**下一章** → [06 對照組比較](06-comparison.md)　|　**回目錄** → [README](../README.md)
+**上一章** → [04 安全治理](security-governance.md)　|　**下一章** → [06 對照組比較](comparison.md)　|　**回目錄** → [README](../../README.md)

@@ -1,5 +1,12 @@
 # 第 1 章:text2SQL 的真實分工邊界
 
+> **Snapshot note**：本章原始研究以 `a8a7519`（2026-07-09）為基準。
+> 核心分工、30K branch、query-scoped manifest 與 current agent-native path 已在
+> `9a0f032` 以
+> [fundamentals/04-query-lifecycle](../fundamentals/04-query-lifecycle.md)、
+> [fundamentals/05-context-memory](../fundamentals/05-context-memory.md) 與實驗重驗。
+> 文內舊行號只作歷史定位，引用前請改用 symbol 與 `UPSTREAM_STATE.md`。
+>
 > 深挖優先序:**第 3**(2026-07 修訂後上調)。這章的價值是**正本清源**:用原始碼證明
 > LLM 到底做了什麼、沒做什麼,以及 WrenAI 靠什麼(而不是靠 LLM 更聰明)來降低
 > SQL 生成錯誤。
@@ -324,4 +331,4 @@ wren skills get usage                        # CLI 內建的 agent 工作流指�
 
 ---
 
-**上一章** → [00 兩套架構](00-two-architectures.md)　|　**下一章** → [02 大量結果處理](02-large-result-handling.md)
+**上一章** → [00 兩套架構](legacy-v1-architecture.md)　|　**下一章** → [02 大量結果處理](large-result-handling.md)

@@ -1,83 +1,91 @@
-# WrenAI 101 — 從原始碼拆解 GenBI 引擎
+# WrenAI 101: 原始碼學習與開源貢獻實驗室
 
-> 目標:搞懂 WrenAI 的 **text2SQL、大量結果處理、資料存取隔離、安全治理** 四件事,
-> 判斷它能不能用在「企業內部有敏感資料」的場景。
->
-> **原則:以原始碼為準,不採信官方行銷式描述。** 每個結論都標註對應的檔案與行號。
+這個 repository 用目前的 `Canner/WrenAI` 原始碼學習 WrenAI，並把開源貢獻當成
+驗證理解的方法。它不是產品介紹，也不是一次性的企業評估報告。
 
-驗證基準:2026-07 clone 的 `Canner/WrenAI`(commit 為當時 `main` HEAD),
-Rust 引擎 + Python CLI/SDK。對照組為 `legacy/v1` 分支(Docker chat-first app)。
+目前驗證基準：
 
----
+- upstream: `Canner/WrenAI`
+- branch: `main`
+- commit: `9a0f0324307442cb523b43838f391add328b78f9`
+- reviewed: 2026-08-07
+- Python package: `wrenai 0.13.2`
 
-## ⚠️ 讀之前一定要先懂的一件事:WrenAI 現在是「兩套架構」
+重要結論一律要回答三件事：
 
-WrenAI 在 **2026-05-07 做了破壞性改版**。你在網路上看到的 90% 教學講的是「舊的那套」。
+1. 在哪個 commit、檔案與 symbol 看到？
+2. 是 source trace、實驗結果，還是假說？
+3. 哪個 upstream 變更會讓它失效？
 
-| | `main`(現行,本專案主軸) | `legacy/v1` 分支(已凍結) |
-|---|---|---|
-| 形態 | **agent-native**:Rust 語意引擎 + Python CLI/SDK + 瀏覽器端 GenBI dashboard | Docker chat-first BI app(`wren-ai-service/`) |
-| text2SQL 由誰做 | **WrenAI 本身不含 LLM 服務**。由外部 agent(Claude、LangChain SDK)呼叫 `wren` CLI 產 SQL,WrenAI 只做 deterministic 的語意層轉換與治理 | 內建完整 RAG pipeline:retrieval → generation → correction → chart |
-| 維護狀態 | 主線,持續開發 | **無新功能、無安全修補**(README 明載) |
+## 這裡的 101 是什麼
 
-→ 這個分裂直接決定了你四個問題的答案,每一章都會分辨「新 main」與「legacy/v1」。
+內容分兩層：
 
-證據:`main` 的 `README.md`(專案結構區塊)、`legacy/v1` 分支的
-`wren-ai-service/src/pipelines/` 目錄。
+- **Fundamentals**：先理解 repository、MDL、query lifecycle、context、memory 與 skills。
+- **Deep dives**：保留原有的 text-to-SQL、結果限制、RLAC/CLAC、安全與企業採用研究。
 
----
+建議從 [學習地圖](docs/00-learning-map.md) 開始。
 
-## 章節目錄
-
-| 章 | 主題 | 一句話結論 |
-|---|---|---|
-| [00](docs/00-two-architectures.md) | 兩套架構的分水嶺 | 不分辨 main/legacy 就會得到錯誤結論 |
-| [01](docs/01-text2sql-deep-dive.md) | text2SQL 的真實分工邊界 | LLM 只產「對語意層的邏輯 SQL」,JOIN/方言/計算欄位由 Rust 引擎 deterministic 展開;main 有自己的 context 供應鏈(30K 閾值全量/檢索) |
-| [02](docs/02-large-result-handling.md) | 大量查詢結果處理 | 護欄哲學是「守 LLM 不守工程師」:**SDK 工具有 limit=100/1000 硬上限,CLI/API 無任何保護** |
-| [03](docs/03-data-isolation.md) | 使用者資料存取隔離 | RLAC/CLAC 引擎層真強制(CLAC 對 wildcard 改靜默剪除),**但預設 CLI 沒接身份**、單一共用 credential;官方把 per-user 身份劃為**商業版功能** |
-| [04](docs/04-security-governance.md) | 安全性與可治理落地 | `policy.py` SQL firewall 是亮點,**但預設 `strict_mode=False`(關閉)**;knowledge/rules 是 prompt 治理非引擎治理 |
-| [05](docs/05-enterprise-verdict.md) | 企業採用總評 | 語意層可信、執行層需外部補強;附信任度總表與補強清單 |
-| [06](docs/06-comparison.md) | 對照組:五種方案比較 | 三原型(原始 schema / RAG 記憶 / 語意層);WrenAI 是「願意建模 + 資料敏感」象限唯一的開源跨源選項 |
-| [附錄](docs/appendix-first-contribution.md) | 第一次開源貢獻實戰 | 用第 1 章抓到的 guided 模板 bug,走完重現 → issue → PR 全流程 |
-
-深挖優先序(2026-07 修訂):**第 6 章 > 第 3 章 > 第 1 章 > 第 2 章 > 第 4 章**。
-理由見各章開頭。
-
-驗證基準更新:2026-07-09 fresh clone,`main` HEAD = `a8a7519`
-(該 commit 本身就改了 CLAC 行為,見第 3 章)。
-
----
-
-## 每個結論的驗證方式
-
-- 📖 **讀原始碼即可確認** — 本專案大部分結論屬此類,已在文中附檔案:行號。
-- 🔬 **需 clone/跑起來實測** — 標記於各章「動手驗證」小節,附可複製指令。
-
-想自己複現:
-
-```bash
-git clone https://github.com/Canner/WrenAI.git
-# main = 現行 agent-native 架構
-# git checkout legacy/v1 = 舊 Docker RAG app(對照組)
+```text
+Agent
+  -> discovery skill / served workflow
+  -> context instructions + memory fetch/recall
+  -> SQL against MDL
+  -> Python WrenEngine
+  -> PyO3 SessionContext
+  -> Rust wren-core semantic planning
+  -> connector
+  -> database
 ```
 
-本專案不把 clone 的原始碼納入 git(見 `.gitignore`),請自行 clone 對照。
+LLM/agent 負責理解問題、選 context、產生與修正 SQL。WrenAI 的 deterministic
+邊界負責 MDL 結構、語意展開、policy 檢查、方言轉換與執行。兩者不能混稱為
+「text-to-SQL 引擎」。
 
----
+## Repository 導覽
 
-## 給趕時間的人(TL;DR)
+| 路徑 | 用途 |
+|---|---|
+| [`docs/fundamentals/`](docs/fundamentals/) | 從零建立 current `main` 架構模型 |
+| [`docs/deep-dives/`](docs/deep-dives/) | 原有進階研究，保留其技術深度 |
+| [`docs/contributing/`](docs/contributing/) | WrenAI Contribution Bar 與 maintainer review patterns |
+| [`experiments/`](experiments/) | 可重跑的架構實驗，不只靠閱讀推論 |
+| [`contribution-lab/`](contribution-lab/) | case study、候選貢獻、重現與 review notes |
+| [`UPSTREAM_STATE.md`](UPSTREAM_STATE.md) | upstream pin、變更與待複查範圍 |
+| [`LEARNING_BACKLOG.md`](LEARNING_BACKLOG.md) | 下一輪 source archaeology |
+| [`CONTRIBUTION_BACKLOG.md`](CONTRIBUTION_BACKLOG.md) | 有證據且做過 duplicate check 的候選項目 |
 
-WrenAI 的價值在 **deterministic 語意層**:MDL 把業務語意編譯進 SQL,
-JOIN/計算/方言由 Rust 引擎處理,LLM 只需產「邏輯 SQL」,這確實能壓低
-text2SQL 常見錯誤(第 1 章)。RLAC/CLAC 是引擎層真強制,不是靠 LLM 自律(第 3 章)。
+## 已驗證的第一輪發現
 
-但**執行層的企業級護欄大多預設關閉或缺席**:SQL firewall 預設 off、
-CLI/API 無預設 row limit(官方 agent SDK 的 LLM-facing 工具有 limit=100/1000
-護欄,是唯一例外)、身份未接進預設 CLI(官方劃為商業版功能)、單一共用
-DB credential。要用在敏感資料場景,必須在 gateway/DB 層外掛身份感知存取控制
-與資源護欄(第 5 章)。
+1. `knowledge/rules/*.md` 是 agent-facing context，也可進 memory index；一般
+   `wren context build` 不會把它編進 engine manifest。current correctness guide
+   所稱 dry-plan 會注入這些 policy filters，與實際 source path 不一致。
+2. served-content guard 會驗證實際 Typer/Click command tree。current CLI 已永遠
+   註冊 lightweight memory group，真實 flags 也可 introspect，但 guard 仍保留舊的
+   memory skip。移除 skip 後 current content 全部通過，且 invalid memory flag 會被
+   抓到；candidate patch 已在 isolated worktree 驗證。
+3. 舊附錄中的 guided-recall bug 已由 issue #2503、PR #2565、regression test、
+   merge commit `f242be4` 與 `wren-v0.13.2` 完成 upstream lifecycle。
 
-對照組結論(第 6 章):LangChain/LlamaIndex/raw MCP 在治理層**什麼都沒有**、
-Vanna 的 "RLS" 是待實作的 NoOp hook;開源跨源方案裡引擎級存取控制只有 WrenAI 有。
-治理做得最完整的是 Snowflake Cortex Analyst(繼承倉庫 RBAC,以使用者本人
-role 執行)——代價是鎖死單一倉庫。
+證據與可重跑指令分別在
+[`03-rules-boundary`](experiments/03-rules-boundary/)、
+[`04-served-content-guard`](experiments/04-served-content-guard/) 與
+[`guided-recall-flag`](contribution-lab/cases/guided-recall-flag/)。
+
+## 使用方式
+
+本 repository 不追蹤 upstream clone。預設把它放在 `.wrenai-src/`：
+
+```bash
+git clone https://github.com/Canner/WrenAI.git .wrenai-src
+git -C .wrenai-src checkout 9a0f0324307442cb523b43838f391add328b78f9
+```
+
+跑實驗前先看各目錄 README。實驗記錄的 `Observed result` 是在上述 commit 的
+輸出，不保證未來版本相同。
+
+## 貢獻界線
+
+這裡可以準備 reproduction、regression test、patch、issue draft 與 PR draft，
+但不會自動開 issue、push branch、送 PR 或在 upstream 留言。任何 upstream
+發布動作都需要使用者明確指示。

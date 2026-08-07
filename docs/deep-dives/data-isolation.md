@@ -1,5 +1,11 @@
 # 第 3 章:使用者資料存取隔離
 
+> **Snapshot note**：原始分析以 `a8a7519` 為基準。current `9a0f032` 的 RLAC
+> filter、CLAC wildcard pruning 與 explicit denial 已由
+> [`experiments/06-access-control`](../../experiments/06-access-control/) 重驗。
+> 身份、credential 與商業版整合屬 deployment/product boundary，採用前必須依當時
+> 文件與實際 integration 再驗。
+>
 > 深挖優先序:**第 2**(僅次於第 6 章對照組)。這是「使用者操作到不屬於他的資料」這個具體風險的核心,
 > 也是多租戶 BI 工具最常踩雷的地方,而官方文件對此講得最含糊。
 
@@ -150,7 +156,8 @@ WrenAI 用的 DB credential 直連資料庫,RLAC 形同虛設——因為過濾�
 
 但注意(2026-07 核驗):**官方 agent SDK 同樣沒接**——`wren-langchain` 的
 `WrenToolkit.query(sql, limit)` 與 LLM-facing 的 `wren_query` 工具簽名裡
-都沒有 `properties`(`sdk/wren-langchain/src/wren_langchain/_toolkit.py:61`)。
+都沒有 `properties`
+(`sdk/wren-langchain/src/wren_langchain/_toolkit.py::WrenToolkit.query`)。
 這其實是正確的安全設計:session property 若暴露成 LLM 可填的工具參數,
 等於讓 LLM(可被 prompt injection 操縱)自報身份。正確接法只有一種:
 由受信任的後端在建 engine/toolkit 時綁定,LLM 摸不到(見 3.4)。
@@ -322,4 +329,4 @@ print(e.dry_plan('SELECT * FROM documents', properties={'session_tenant_id': \"'
 
 ---
 
-**上一章** → [02 大量結果](02-large-result-handling.md)　|　**下一章** → [04 安全治理](04-security-governance.md)
+**上一章** → [02 大量結果](large-result-handling.md)　|　**下一章** → [04 安全治理](security-governance.md)

@@ -1,5 +1,10 @@
 # 第 6 章:對照組 —— 五種「自然語言問資料庫」方案的機制比較
 
+> **Historical comparison**：本章比較基準是 2026-07。外部 framework、commercial
+> product、pricing、security 與 feature boundary 都會快速變動；選型前必須重新查
+> current primary sources。保留本章是為了三種 architecture archetype，而不是把
+> 舊版本表格當成 2026-08 的市場現況。
+>
 > 深挖優先序:**第 1(2026-07 新增後)**。前五章確立了 WrenAI 是什麼;
 > 這章回答選型問題:**跟其他方案比,WrenAI 的語意層/治理投資在什麼場景回本、
 > 什麼場景是多餘的?**
@@ -283,7 +288,7 @@ schema 小且命名自明。此時語意層是純開銷。**什麼時候它崩**
 | 方案 | 主要證據位置 |
 |---|---|
 | LangChain | `libs/community/langchain_community/utilities/sql_database.py`(get_table_info、sample_rows)、`agent_toolkits/sql/`(四工具與 prompt)、0.4.2 `create_sql_agent` docstring(legacy 警告) |
-| Vanna | `legacy/base/base.py`(get_sql_prompt:586、generate_sql:93、is_sql_valid:238、auto_train)、`chromadb_vector.py`(top-10 檢索)、2.0 `core/registry.py:113-142`(RLS NoOp hook)、`tools/run_sql.py` |
+| Vanna | `legacy/base/base.py`(get_sql_prompt:586、generate_sql:93、is_sql_valid:238、auto_train)、`chromadb_vector.py`(top-10 檢索)、Vanna 2.0 source snapshot 的 core/registry.py lines 113-142(RLS NoOp hook)、`tools/run_sql.py` |
 | LlamaIndex | `sql_retriever.py`(:276 表選擇、:324 "assume valid"、:334 error masking、:231 死參數)、`sql_wrapper.py`(:249 run_sql 無上限 fetchall、:265 300 字元截斷)、`table_node_mapping.py` |
 | Cortex Analyst | Snowflake 官方文件(semantic model/Semantic Views、VQR、RBAC 繼承、CORTEX_USER role) |
 | Postgres MCP | 官方 archived server README(READ ONLY、resource schema)、Postgres MCP Pro(pglast restricted mode) |
@@ -291,4 +296,4 @@ schema 小且命名自明。此時語意層是純開銷。**什麼時候它崩**
 
 ---
 
-**上一章** → [05 企業採用總評](05-enterprise-verdict.md)　|　**回目錄** → [README](../README.md)
+**上一章** → [05 企業採用總評](enterprise-verdict.md)　|　**回目錄** → [README](../../README.md)
